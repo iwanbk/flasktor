@@ -10,6 +10,7 @@ from flask import globals
 app = Flask(__name__)
 
 globals.db = {}
+globals.trackdb = {}
 
 _DEBUG_ON = False
 _INTERVAL = 1800
@@ -62,18 +63,25 @@ def scrape_handler():
     print " ===== SCRAPE ========="
     return "failed"
 '''
+def add_to_db(info_hash,val):
+    if info_hash not in globals.db:
+        globals.trackdb[info_hash] = []
+    
+    globals.trackdb[info_hash].append(val)
+    
 @app.route("/announce/",methods = ["GET"])
 def announce_handler():
     if request.args.get("short") != None and _ENABLE_SHORT_ANNOUNCE == True:
         interval = 120
         interval_min = 30
     
-    args_info_hash_utf8 = request.args.get("info_hash").decode()
-    args_peer_id_utf8 = request.args.get("peer_id").decode()
+    args_info_hash = request.args.get("info_hash")
+    args_peer_id = request.args.get("peer_id")
     
-    to_hash =  args_peer_id_utf8.encode("utf-8") + args_info_hash_utf8.encode("utf-8")
+    to_hash =  args_peer_id.encode("utf-8") + args_info_hash.encode("utf-8")
     
     sum = hashlib.sha1(to_hash)
+    sum = to_hash
     
     #When should we remove the client?
     #$expire = time()+$interval;
@@ -87,20 +95,20 @@ def announce_handler():
         
     db_val = []
     db_val.append(request.remote_addr)
-    db_val.append(request.args.get("peer_id"))
+    db_val.append(args_peer_id)
     db_val.append(request.args.get("port"))
     db_val.append(expire)
-    db_val.append(args_info_hash_utf8)
+    db_val.append(args_info_hash)
     user_agent = "sesuatu" #TODO
     db_val.append(user_agent)
     db_val.append(request.args.get("key"))
     db_val.append(is_seed(request))
     
-    print "===db val === "
     print db_val
-    print "end db vall"
     
     globals.db[sum] = db_val
+    print "len globals.db = " + str(len(globals.db))
+    add_to_db(args_info_hash,db_val)
     
     if request.args.get("event") == "stopped":
         del globals.db[sum]
@@ -110,15 +118,13 @@ def announce_handler():
     for d in globals.db.iteritems():
         pass
     
-    #save client list
-    
     #build reply
     reply_dict = {}
     for k,v in globals.db.iteritems():
-        print v
-        if v[4] == args_info_hash_utf8:
+        if v[4] == args_info_hash:
             reply_dict[k] = v
     
+    #remove ourself
     del reply_dict[sum]
     
     return track(reply_dict, request)    
