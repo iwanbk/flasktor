@@ -1,4 +1,4 @@
-import hashlib
+import re
 
 from flask import Flask
 from flask import render_template
@@ -31,12 +31,12 @@ def is_seed(request):
     
     return False
 def track(dict, request, interval = 60, min_ival = 0):
-    p = ""
     c = 0
     i = 0
+    p = ""
     
     for k,d in dict.iteritems():
-        if d[7] != 0:
+        if d['is_seed'] == True:
             c = c + 1
             if (_NO_SEED_P2P and is_seed(request) == True):
                 continue
@@ -44,14 +44,16 @@ def track(dict, request, interval = 60, min_ival = 0):
             i = i + 1
         
         #do some bencoding
+        #if request.args.get("no_peer_id") == None and _NO_PEER_ID == True:
+        #pid = "7:peer id" + str(len(d['peer_id'])) + ":" + d['peer_id']
         pid = ""
-        if request.args.get("no_peer_id") == None and _NO_PEER_ID == True:
-            pid = "7:peer id" + str(len(d[1])) + ":" + d[1]
         
-        p = p + 'd2:ip' + str(len(d[0])) + ':' + d[0] + pid + '4:porti' + d[2] + 'ee'
+        p = 'd2:ip' + str(len(d['ip'])) + ':' + d['ip'] + pid + '4:porti' + d['port'] + 'ee'
+        #p = pid + 'd2:ip' + str(len(d['ip'])) + ':' + d['ip'] + '4:porti' + d['port'] + 'ee'
     
     r = 'd8:intervali' + str(interval) + 'e12:min intervali' + str(min_ival) + 'e8:completei' + str(c) + 'e10:incompletei' + str(i) + 'e5:peersl' + p + 'ee'
     
+    print r
     return r
 
 
@@ -75,40 +77,50 @@ def announce_handler():
         interval = 120
         interval_min = 30
     
+    #mandatory 
     args_info_hash = request.args.get("info_hash")
     args_peer_id = request.args.get("peer_id")
+    args_port = request.args.get("port")
+    args_uploaded = request.args.get("uploaded")
+    args_downloaded = request.args.get("downloaded")
+    args_left = request.args.get("left")
     
-    to_hash =  args_peer_id.encode("utf-8") + args_info_hash.encode("utf-8")
+    #optional
+    args_ip = request.args.get("ip")
+    if args_ip == None:
+        args_ip = request.remote_addr
+        
+    args_event = request.args.get("event")
     
-    sum = hashlib.sha1(to_hash)
-    sum = to_hash
+    
+    sum =  args_peer_id.encode("utf-8") + args_info_hash.encode("utf-8")
     
     #When should we remove the client?
     #$expire = time()+$interval;
     expire = 200 #TODO
     
     if sum in globals.db:
-        if globals.db[sum][6] != request.args.get("key"):
+        if globals.db[sum]['key'] != request.args.get("key"):
             print "auth failed"
             sleep(3)
             return ""
         
-    db_val = []
-    db_val.append(request.remote_addr)
-    db_val.append(args_peer_id)
-    db_val.append(request.args.get("port"))
-    db_val.append(expire)
-    db_val.append(args_info_hash)
-    user_agent = "sesuatu" #TODO
-    db_val.append(user_agent)
-    db_val.append(request.args.get("key"))
-    db_val.append(is_seed(request))
+    db_val = {}
+    db_val['ip'] = args_ip
+    db_val['peer_id'] = args_peer_id
+    #db_val['peer_id'] = args_peer_id.encode("utf-8")
+    db_val['port'] = args_port
+    db_val['expire'] = expire
+    db_val['info_hash'] = args_info_hash
+    db_val['user_agent'] = request.user_agent.string
+    db_val['key'] = request.args.get("key")
+    db_val['is_seed'] = is_seed(request)
     
     print db_val
     
     globals.db[sum] = db_val
-    print "len globals.db = " + str(len(globals.db))
-    add_to_db(args_info_hash,db_val)
+    
+    #add_to_db(args_info_hash,db_val)
     
     if request.args.get("event") == "stopped":
         del globals.db[sum]
@@ -121,7 +133,7 @@ def announce_handler():
     #build reply
     reply_dict = {}
     for k,v in globals.db.iteritems():
-        if v[4] == args_info_hash:
+        if v['info_hash'] == args_info_hash:
             reply_dict[k] = v
     
     #remove ourself
@@ -129,4 +141,4 @@ def announce_handler():
     
     return track(reply_dict, request)    
 if __name__ == '__main__':
-    app.run(host="0.0.0.0",debug=True)
+    app.run(host="0.0.0.0",debug=True, port=5000)
